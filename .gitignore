@@ -9,3 +9,9 @@ desktop.ini
 
 # Node
 node_modules/
+
+# Streamlit secrets
+.streamlit/secrets.toml
+__pycache__/
+*.pyc
+

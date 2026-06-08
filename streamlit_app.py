@@ -13,6 +13,8 @@ import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 from io import BytesIO
+import time
+import uuid
 
 from theft_detection import TheftDetectionEngine
 from sgcc_generator import generate_dataset, to_xlsx_bytes
@@ -192,6 +194,10 @@ st.markdown("""
 import os
 import base64
 
+# ─── Firebase Database ───
+import firebase_db
+firebase_connected = firebase_db.init_firebase()
+
 @st.cache_data
 def get_logo_base64():
     logo_path = os.path.join(os.path.dirname(__file__), "logo.png")
@@ -231,7 +237,7 @@ if "page" in st.query_params:
     st.query_params.clear()
 
 
-def run_detection(df, source_name):
+def run_detection(df, source_name, save_to_db=True):
     """Run the full detection pipeline."""
     engine = TheftDetectionEngine()
     engine.process_data(df)
@@ -241,6 +247,39 @@ def run_detection(df, source_name):
     st.session_state.df = engine.df
     st.session_state.source_name = source_name
     st.session_state.lstm_results = None
+
+    if firebase_connected and save_to_db:
+        run_id = f"run_{int(time.time())}_{uuid.uuid4().hex[:8]}"
+        summary = engine.get_summary()
+        with st.spinner("Saving results to Firebase Firestore..."):
+            try:
+                success = firebase_db.save_run(run_id, source_name, engine.df, engine.col_map, engine.ts_cols, summary)
+                if success:
+                    st.toast("⚡ Analysis saved to Firebase!")
+            except Exception as e:
+                st.warning(f"Could not save run to Firebase: {e}")
+
+
+def load_historical_run(run_id):
+    """Load a past analysis run from Firebase."""
+    try:
+        summary, df = firebase_db.get_run_data(run_id)
+        if df is not None:
+            engine = TheftDetectionEngine()
+            engine.df = df
+            engine.col_map = summary.get("col_map", {})
+            engine.ts_cols = summary.get("ts_cols", [])
+
+            st.session_state.engine = engine
+            st.session_state.df = df
+            st.session_state.source_name = summary.get("filename", "Historical Run")
+            st.session_state.lstm_results = None
+            st.session_state.page = "📊 Dashboard"
+            st.toast("📂 Loaded historical run from Firebase!")
+        else:
+            st.error("Run not found in Firebase.")
+    except Exception as e:
+        st.error(f"Failed to load historical run: {e}")
 
 
 def run_lstm_training():
@@ -285,6 +324,12 @@ def run_lstm_training():
 with st.sidebar:
     st.markdown("## ⚡ ElectraGuard")
     st.markdown("*AI-Powered Theft Detection*")
+    
+    if not firebase_connected:
+        st.warning("⚠️ **Firebase Offline**\n\nRun history is disabled. Configure `.streamlit/secrets.toml` to connect.")
+    else:
+        st.success("💚 **Firebase Connected**")
+        
     st.divider()
 
     # 🧭 Sidebar Navigation Menu
@@ -472,6 +517,53 @@ if st.session_state.page == "🏠 Home":
         st.success(f"✅ Data `{st.session_state.source_name}` has been successfully analyzed. Go to the **📊 Dashboard** page in the sidebar navigation to view the reports.")
     else:
         st.info("👈 **Get started** — upload a file or click **Sample Data / SGCC** in the sidebar.")
+
+    # ─── Firebase Run History Section ───
+    if firebase_connected:
+        st.divider()
+        st.markdown("### 📋 Run History (Firebase)")
+        
+        runs = firebase_db.get_runs_list()
+        if not runs:
+            st.info("No saved runs found in Firebase Firestore. Analyze data to store it here.")
+        else:
+            st.markdown("Select a past run to load its full dashboard:")
+            
+            # Header Row
+            hcol1, hcol2, hcol3, hcol4, hcol5, hcol6 = st.columns([2.5, 2, 1, 1, 1, 1.5])
+            hcol1.markdown("**Dataset Filename**")
+            hcol2.markdown("**Date Analyzed**")
+            hcol3.markdown("**Total**")
+            hcol4.markdown("**🔴 Crit**")
+            hcol5.markdown("**🟠 High**")
+            hcol6.markdown("**Actions**")
+            
+            for run in runs:
+                run_id = run["run_id"]
+                filename = run["filename"]
+                date_str = run.get("date_str", "Pending...")
+                total = run.get("total", 0)
+                crit = run.get("critical", 0)
+                high = run.get("high", 0)
+                
+                rcol1, rcol2, rcol3, rcol4, rcol5, rcol6 = st.columns([2.5, 2, 1, 1, 1, 1.5])
+                rcol1.write(filename)
+                rcol2.write(date_str)
+                rcol3.write(str(total))
+                rcol4.write(str(crit))
+                rcol5.write(str(high))
+                
+                # Load/Delete buttons
+                btn_col1, btn_col2 = rcol6.columns(2)
+                with btn_col1:
+                    if st.button("📂", key=f"load_{run_id}", help="Restore this analysis session"):
+                        load_historical_run(run_id)
+                        st.rerun()
+                with btn_col2:
+                    if st.button("🗑️", key=f"del_{run_id}", help="Delete from database"):
+                        with st.spinner("Deleting..."):
+                            firebase_db.delete_run(run_id)
+                            st.rerun()
 
 elif st.session_state.page == "📊 Dashboard":
     if st.session_state.engine is None:
