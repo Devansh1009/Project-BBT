@@ -332,18 +332,6 @@ with st.sidebar:
         
     st.divider()
 
-    # 🧭 Sidebar Navigation Menu
-    st.markdown("### 🧭 Navigation")
-    pages = ["🏠 Home", "📊 Dashboard", "📋 Data View", "⚠️ Alerts", "📈 Analytics", "📂 Previous Analytics", "📖 Guide"]
-    for p in pages:
-        is_active = (st.session_state.page == p)
-        btn_type = "primary" if is_active else "secondary"
-        if st.sidebar.button(p, key=f"nav_{p}", use_container_width=True, type=btn_type):
-            st.session_state.page = p
-            st.rerun()
-
-    st.divider()
-
     st.markdown("### 📂 Load Data")
 
     # File upload
@@ -463,6 +451,19 @@ with col_logo2:
         f"<p style='color: #8892a8; font-size: 0.8rem; letter-spacing: 2px; text-transform: uppercase; {margin_style} margin-bottom: 20px; font-weight: 600; text-align: center;'>AI-POWERED THEFT DETECTION</p>",
         unsafe_allow_html=True
     )
+
+# ─── Top Navigation Menu ───
+pages = ["🏠 Home", "📊 Dashboard", "📋 Data View", "⚠️ Alerts", "📈 Analytics", "📂 Previous Analytics", "📖 Guide"]
+nav_cols = st.columns(len(pages))
+for idx, p in enumerate(pages):
+    with nav_cols[idx]:
+        is_active = (st.session_state.page == p)
+        btn_type = "primary" if is_active else "secondary"
+        if st.button(p, key=f"nav_top_{p}", use_container_width=True, type=btn_type):
+            st.session_state.page = p
+            st.rerun()
+
+st.divider()
 
 # ─── Page Rendering ───
 if st.session_state.page == "🏠 Home":
